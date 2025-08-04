@@ -19,7 +19,7 @@ print("TF version:", tf.__version__)
 print("GPU available:", tf.config.list_physical_devices('GPU'))
 
 data_dir = '/content/drive/MyDrive/Data'
-image_size = (128, 128)
+image_size = (248, 496)
 batch_size = 64
 epochs = 20
 patience = 3
@@ -71,16 +71,26 @@ def create_model():
         Activation('swish'),
         BatchNormalization(),
         MaxPooling2D(2, 2),
-
+      
+        Conv2D(128, (3, 3), padding='same', kernel_regularizer=l2(0.001)),
+        Activation('swish'),
+        BatchNormalization(),
+        MaxPooling2D(2, 2),
+        Flatten(),
+        
+        Conv2D(256, (3, 3), padding='same', kernel_regularizer=l2(0.001)),
+        Activation('swish'),
+        BatchNormalization(),
+        MaxPooling2D(2, 2),
         Flatten(),
 
         Dense(256, activation='swish', kernel_regularizer=l2(0.001)),
         BatchNormalization(),
-        Dropout(0.4),
+        Dropout(0.2),
 
         Dense(64, activation='swish', kernel_regularizer=l2(0.001)),
         BatchNormalization(),
-        Dropout(0.3),
+        Dropout(0.2),
 
         Dense(num_classes, activation='softmax')
     ])
