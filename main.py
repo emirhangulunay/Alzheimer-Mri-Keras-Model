@@ -7,25 +7,25 @@ import tensorflow as tf
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import (Conv2D, MaxPooling2D, Flatten, Dense,
                                      Dropout, BatchNormalization, Activation, InputLayer)
-from tensorflow.keras.callbacks import EarlyStopping, TensorBoard
+from tensorflow.keras.callbacks import EarlyStopping, TensorBoard, ReduceLROnPlateau
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.regularizers import l2
 from sklearn.metrics import classification_report, confusion_matrix, ConfusionMatrixDisplay
 from google.colab import drive
 
 drive.mount('/content/drive')
-
 print("TF version:", tf.__version__)
 print("GPU available:", tf.config.list_physical_devices('GPU'))
 
 data_dir = '/content/drive/MyDrive/Data'
 image_size = (248, 496)
 batch_size = 64
-epochs = 20
-patience = 3
+epochs = 30
+patience = 5
 learning_rate = 0.0005
 val_split = 0.2
 seed = 42
+weight_decay = 1e-4
 
 log_dir = os.path.join("logs", datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
 tensorboard_callback = TensorBoard(log_dir=log_dir, histogram_freq=1)
@@ -58,45 +58,47 @@ normalization_layer = tf.keras.layers.Rescaling(1./255)
 train_dataset = raw_train_dataset.map(lambda x, y: (normalization_layer(x), y))
 val_dataset = raw_val_dataset.map(lambda x, y: (normalization_layer(x), y))
 
+AUTOTUNE = tf.data.AUTOTUNE
+train_dataset = train_dataset.cache().shuffle(1000).prefetch(buffer_size=AUTOTUNE)
+val_dataset = val_dataset.cache().prefetch(buffer_size=AUTOTUNE)
+
 def create_model():
     model = Sequential([
         InputLayer(input_shape=(image_size[0], image_size[1], 1)),
 
-        Conv2D(32, (3, 3), padding='same', kernel_regularizer=l2(0.001)),
-        Activation('swish'),
+        Conv2D(32, (3, 3), padding='same', kernel_regularizer=l2(weight_decay)),
         BatchNormalization(),
+        Activation('swish'),
         MaxPooling2D(2, 2),
 
-        Conv2D(64, (3, 3), padding='same', kernel_regularizer=l2(0.001)),
-        Activation('swish'),
+        Conv2D(64, (3, 3), padding='same', kernel_regularizer=l2(weight_decay)),
         BatchNormalization(),
-        MaxPooling2D(2, 2),
-      
-        Conv2D(128, (3, 3), padding='same', kernel_regularizer=l2(0.001)),
         Activation('swish'),
-        BatchNormalization(),
         MaxPooling2D(2, 2),
-        Flatten(),
-        
-        Conv2D(256, (3, 3), padding='same', kernel_regularizer=l2(0.001)),
+
+        Conv2D(128, (3, 3), padding='same', kernel_regularizer=l2(weight_decay)),
+        BatchNormalization(),
         Activation('swish'),
-        BatchNormalization(),
         MaxPooling2D(2, 2),
+
         Flatten(),
 
-        Dense(256, activation='swish', kernel_regularizer=l2(0.001)),
+        Dense(128, kernel_regularizer=l2(weight_decay)),
         BatchNormalization(),
-        Dropout(0.2),
+        Activation('swish'),
+        Dropout(0.5),
 
-        Dense(64, activation='swish', kernel_regularizer=l2(0.001)),
+        Dense(64, kernel_regularizer=l2(weight_decay)),
         BatchNormalization(),
-        Dropout(0.2),
+        Activation('swish'),
+        Dropout(0.5),
 
         Dense(num_classes, activation='softmax')
     ])
 
+    optimizer = Adam(learning_rate=learning_rate)
     model.compile(
-        optimizer=Adam(learning_rate=learning_rate),
+        optimizer=optimizer,
         loss='sparse_categorical_crossentropy',
         metrics=['accuracy']
     )
@@ -109,14 +111,22 @@ model.summary()
 early_stop = EarlyStopping(
     monitor='val_loss',
     patience=patience,
-    restore_best_weights=True
+    restore_best_weights=True,
+    verbose=1
+)
+
+reduce_lr = ReduceLROnPlateau(
+    monitor='val_loss',
+    factor=0.5,
+    patience=2,
+    verbose=1
 )
 
 history = model.fit(
     train_dataset,
     validation_data=val_dataset,
     epochs=epochs,
-    callbacks=[early_stop, tensorboard_callback]
+    callbacks=[early_stop, reduce_lr, tensorboard_callback]
 )
 
 plt.figure(figsize=(10, 4))
@@ -140,4 +150,4 @@ plt.legend()
 plt.tight_layout()
 plt.show()
 
-model.save("/content/drive/MyDrive/alzheimer_mri_model.h5")
+model.save("/content/drive/MyDrive/alzheimer_mri_model_adam.keras")
