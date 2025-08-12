@@ -26,13 +26,23 @@ seed = 42
 file_paths = []
 labels = []
 
-class_names = sorted(os.listdir(data_dir))
+class_names = sorted(
+    [entry.name for entry in os.scandir(data_dir) if entry.is_dir()]
+)
+
 num_classes = len(class_names)
 class_to_idx = {cls_name: i for i, cls_name in enumerate(class_names)}
 
 for cls_name in class_names:
     cls_folder = os.path.join(data_dir, cls_name)
-    files = [os.path.join(cls_folder, f) for f in os.listdir(cls_folder) if f.lower().endswith(('png','jpg','jpeg'))]
+    
+    files = [
+        os.path.join(cls_folder, f)
+        for f in os.listdir(cls_folder)
+        if os.path.isfile(os.path.join(cls_folder, f))
+        and f.lower().endswith(('.png', '.jpg', '.jpeg'))
+    ]
+    
     file_paths.extend(files)
     labels.extend([class_to_idx[cls_name]] * len(files))
 
@@ -149,4 +159,3 @@ for train_index, val_index in kf.split(file_paths):
 print(f"\n{k_folds}-Fold Cross Validation sonuçları:")
 print(f"Ortalama doğruluk: {np.mean(acc_per_fold):.4f} ± {np.std(acc_per_fold):.4f}")
 print(f"Ortalama kayıp: {np.mean(loss_per_fold):.4f} ± {np.std(loss_per_fold):.4f}")
-
