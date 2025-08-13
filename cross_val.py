@@ -1,152 +1,133 @@
 import os
 import numpy as np
-import matplotlib.pyplot as plt
-import datetime
-
+import pandas as pd
+from sklearn.model_selection import StratifiedKFold
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 import tensorflow as tf
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import (Conv2D, MaxPooling2D, Flatten, Dense,
-                                     Dropout, BatchNormalization, Activation, InputLayer)
-from tensorflow.keras.callbacks import EarlyStopping, TensorBoard, ReduceLROnPlateau
-from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.regularizers import l2
-from sklearn.model_selection import KFold
-from sklearn.utils import shuffle
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from tensorflow.keras import layers, models, optimizers
+import matplotlib.pyplot as plt
+
+lr = 0.001
+batch = 64
+epochs = 10
+patience = 5
+k = 5
 
 data_dir = '/content/drive/MyDrive/Data'
-image_size = (248, 496)
-batch_size = 64
-epochs = 30
-patience = 5
-learning_rate = 0.0005
-weight_decay = 1e-4
-k_folds = 5
-seed = 42
+img_height, img_width = 248, 496  
 
 file_paths = []
 labels = []
-
 class_names = sorted(os.listdir(data_dir))
-num_classes = len(class_names)
-class_to_idx = {cls_name: i for i, cls_name in enumerate(class_names)}
+class_to_idx = {cls: idx for idx, cls in enumerate(class_names)}
 
-for cls_name in class_names:
-    cls_folder = os.path.join(data_dir, cls_name)
-    files = [os.path.join(cls_folder, f) for f in os.listdir(cls_folder) if f.lower().endswith(('png','jpg','jpeg'))]
-    file_paths.extend(files)
-    labels.extend([class_to_idx[cls_name]] * len(files))
+for cls in class_names:
+    cls_folder = os.path.join(data_dir, cls)
+    for fname in os.listdir(cls_folder):
+        if fname.endswith('.jpg'):
+            file_paths.append(os.path.join(cls_folder, fname))
+            labels.append(class_to_idx[cls])
 
-file_paths, labels = shuffle(file_paths, labels, random_state=seed)
+file_paths = np.array(file_paths)
+labels = np.array(labels)
 
-print(f"Toplam örnek sayısı: {len(file_paths)}")
-print(f"Sınıf isimleri: {class_names}")
+skf = StratifiedKFold(n_splits=k, shuffle=True, random_state=42)
 
-def paths_to_dataset(paths, labels, batch_size, shuffle_ds=True):
-    def load_image(path, label):
-        img = tf.io.read_file(path)
-        img = tf.image.decode_image(img, channels=1, dtype=tf.float32)  # grayscale float32
-        img = tf.image.resize(img, image_size)
-        return img, label
+fold_accuracies, fold_precisions, fold_recalls, fold_f1_scores = [], [], [], []
 
-    path_ds = tf.data.Dataset.from_tensor_slices((paths, labels))
-    image_label_ds = path_ds.map(load_image, num_parallel_calls=tf.data.AUTOTUNE)
-    if shuffle_ds:
-        image_label_ds = image_label_ds.shuffle(buffer_size=1000, seed=seed)
-    image_label_ds = image_label_ds.batch(batch_size).prefetch(tf.data.AUTOTUNE)
-    return image_label_ds
-
-def create_model():
-    model = Sequential([
-        InputLayer(input_shape=(image_size[0], image_size[1], 1)),
-
-        Conv2D(32, (3, 3), padding='same', kernel_regularizer=l2(weight_decay)),
-        BatchNormalization(),
-        Activation('swish'),
-        MaxPooling2D(2, 2),
-
-        Conv2D(64, (3, 3), padding='same', kernel_regularizer=l2(weight_decay)),
-        BatchNormalization(),
-        Activation('swish'),
-        MaxPooling2D(2, 2),
-
-        Conv2D(128, (3, 3), padding='same', kernel_regularizer=l2(weight_decay)),
-        BatchNormalization(),
-        Activation('swish'),
-        MaxPooling2D(2, 2),
-
-        Flatten(),
-
-        Dense(128, kernel_regularizer=l2(weight_decay)),
-        BatchNormalization(),
-        Activation('swish'),
-        Dropout(0.5),
-
-        Dense(64, kernel_regularizer=l2(weight_decay)),
-        BatchNormalization(),
-        Activation('swish'),
-        Dropout(0.5),
-
-        Dense(num_classes, activation='softmax')
+def build_model(num_classes):
+    model = models.Sequential([
+        layers.Input(shape=(img_height, img_width, 3)),
+        layers.Conv2D(32, 3, activation='relu'),
+        layers.MaxPooling2D(),
+        layers.Conv2D(64, 3, activation='relu'),
+        layers.MaxPooling2D(),
+        layers.Flatten(),
+        layers.Dense(128, activation='relu'),
+        layers.Dense(num_classes, activation='softmax')
     ])
-
-    optimizer = Adam(learning_rate=learning_rate)
-    model.compile(
-        optimizer=optimizer,
-        loss='sparse_categorical_crossentropy',
-        metrics=['accuracy']
-    )
-
+    model.compile(optimizer=optimizers.Adam(learning_rate=lr),
+                  loss='sparse_categorical_crossentropy',
+                  metrics=['accuracy'])
     return model
 
-kf = KFold(n_splits=k_folds, shuffle=True, random_state=seed)
+for fold, (train_idx, val_idx) in enumerate(skf.split(file_paths, labels)):
+    print(f"Processing fold {fold+1} of {k}")
 
-fold_no = 1
-acc_per_fold = []
-loss_per_fold = []
+    train_files, val_files = file_paths[train_idx], file_paths[val_idx]
+    train_labels, val_labels = labels[train_idx], labels[val_idx]
 
-for train_index, val_index in kf.split(file_paths):
-    print(f"\n\n--- Fold {fold_no} ---")
+    train_gen = ImageDataGenerator(rescale=1./255)
+    val_gen = ImageDataGenerator(rescale=1./255)
 
-    train_paths = [file_paths[i] for i in train_index]
-    train_labels = [labels[i] for i in train_index]
-    val_paths = [file_paths[i] for i in val_index]
-    val_labels = [labels[i] for i in val_index]
+    train_df = pd.DataFrame({'filename': train_files, 'class': train_labels})
+    val_df = pd.DataFrame({'filename': val_files, 'class': val_labels})
 
-    train_ds = paths_to_dataset(train_paths, train_labels, batch_size, shuffle_ds=True)
-    val_ds = paths_to_dataset(val_paths, val_labels, batch_size, shuffle_ds=False)
-
-    model = create_model()
-
-    early_stop = EarlyStopping(
-        monitor='val_loss',
-        patience=patience,
-        restore_best_weights=True,
-        verbose=1
+    train_data = train_gen.flow_from_dataframe(
+        dataframe=train_df,
+        x_col='filename', y_col='class',
+        target_size=(img_height, img_width),
+        class_mode='raw', batch_size=batch, shuffle=True
+    )
+    val_data = val_gen.flow_from_dataframe(
+        dataframe=val_df,
+        x_col='filename', y_col='class',
+        target_size=(img_height, img_width),
+        class_mode='raw', batch_size=batch, shuffle=False
     )
 
-    reduce_lr = ReduceLROnPlateau(
-        monitor='val_loss',
-        factor=0.5,
-        patience=2,
-        verbose=1
-    )
+    model = build_model(num_classes=len(class_names))
 
-    history = model.fit(
-        train_ds,
-        validation_data=val_ds,
-        epochs=epochs,
-        callbacks=[early_stop, reduce_lr],
-        verbose=2
-    )
+    early_stop = tf.keras.callbacks.EarlyStopping(monitor='val_accuracy', patience=patience, restore_best_weights=True, verbose=1)
 
-    scores = model.evaluate(val_ds, verbose=0)
-    print(f"Fold {fold_no} — Loss: {scores[0]:.4f}, Accuracy: {scores[1]:.4f}")
-    acc_per_fold.append(scores[1])
-    loss_per_fold.append(scores[0])
+    model.fit(train_data, epochs=epochs, validation_data=val_data, callbacks=[early_stop], verbose=1)
 
-    fold_no += 1
+    val_preds = model.predict(val_data)
+    val_preds_classes = np.argmax(val_preds, axis=1)
+    val_true = val_labels
 
-print(f"\n{k_folds}-Fold Cross Validation sonuçları:")
-print(f"Ortalama doğruluk: {np.mean(acc_per_fold):.4f} ± {np.std(acc_per_fold):.4f}")
-print(f"Ortalama kayıp: {np.mean(loss_per_fold):.4f} ± {np.std(loss_per_fold):.4f}")
+    acc = accuracy_score(val_true, val_preds_classes)
+    prec = precision_score(val_true, val_preds_classes, average='weighted')
+    rec = recall_score(val_true, val_preds_classes, average='weighted')
+    f1 = f1_score(val_true, val_preds_classes, average='weighted')
 
+    fold_accuracies.append(acc)
+    fold_precisions.append(prec)
+    fold_recalls.append(rec)
+    fold_f1_scores.append(f1)
+
+    print(f"Fold {fold+1} - Accuracy: {acc:.4f}, Precision: {prec:.4f}, Recall: {rec:.4f}, F1: {f1:.4f}")
+
+print("\nK-Fold Cross-Validation Results:")
+print(f"Average Accuracy: {np.mean(fold_accuracies):.4f} ± {np.std(fold_accuracies):.4f}")
+print(f"Average Precision: {np.mean(fold_precisions):.4f} ± {np.std(fold_precisions):.4f}")
+print(f"Average Recall: {np.mean(fold_recalls):.4f} ± {np.std(fold_recalls):.4f}")
+print(f"Average F1 Score: {np.mean(fold_f1_scores):.4f} ± {np.std(fold_f1_scores):.4f}")
+
+folds = np.arange(1, k+1)
+
+plt.figure(figsize=(10, 6))
+plt.plot(folds, fold_accuracies, marker='o', label='Accuracy')
+plt.plot(folds, fold_precisions, marker='o', label='Precision')
+plt.plot(folds, fold_recalls, marker='o', label='Recall')
+plt.plot(folds, fold_f1_scores, marker='o', label='F1 Score')
+plt.title('K-Fold Cross-Validation Metrics')
+plt.xlabel('Fold')
+plt.ylabel('Score')
+plt.xticks(folds)
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
+metrics = ['Accuracy', 'Precision', 'Recall', 'F1 Score']
+means = [np.mean(fold_accuracies), np.mean(fold_precisions), np.mean(fold_recalls), np.mean(fold_f1_scores)]
+stds = [np.std(fold_accuracies), np.std(fold_precisions), np.std(fold_recalls), np.std(fold_f1_scores)]
+
+plt.figure(figsize=(8, 5))
+plt.bar(metrics, means, yerr=stds, capsize=8, color='skyblue')
+plt.title('K-Fold Cross-Validation Mean Metrics')
+plt.ylabel('Score')
+plt.ylim(0, 1)
+plt.grid(axis='y')
