@@ -8,6 +8,9 @@ from tensorflow.keras.preprocessing.image import ImageDataGenerator
 from tensorflow.keras import layers, models, optimizers
 import matplotlib.pyplot as plt
 
+from google.colab import drive
+drive.mount('/content/drive')
+
 lr = 0.001
 batch = 64
 epochs = 10
