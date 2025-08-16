@@ -18,6 +18,7 @@ print("TF version:", tf.__version__)
 print("GPU available:", tf.config.list_physical_devices('GPU'))
 
 data_dir = '/content/drive/MyDrive/Data'
+
 image_size = (248, 496)
 batch_size = 64
 epochs = 30
