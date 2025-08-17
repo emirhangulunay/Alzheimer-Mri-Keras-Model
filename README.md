@@ -53,26 +53,8 @@ August 2025 - Emirhan & Oguzhan
 
 <br><br><br>
 
-## 2) Code Organization
 
- The codes are designed to run in Colab environment. <br><br>
-    
-    
-   The workflow is as follows: <br><br>
-        1)  <br>
-        2)  <br>
-        3)  <br>
-        4)  <br>
-        5)  <br>
-        6)  <br>
-        7) kodun fonksiyonel kısımlarını commentlerle belirtelim ve sonra bu aşamaları buraya not edelim <br><br>
-
-
- 
-
-<br>
-
-## 3) Current Results
+## 2) Current Results
 
  Test **Accuracy**: %90  buraya gerçek skoru yazalım <br>
 
