@@ -3,7 +3,7 @@
 <br>
 <br>
 
-August 2025 - Emirhan & Oguzhan
+August 2025 - Emirhan
 
 <br><br>
 
